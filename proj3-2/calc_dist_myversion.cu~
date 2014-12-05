@@ -1,0 +1,255 @@
+
+/*
+ * Proj 3-2 SKELETON
+ */
+
+#include <float.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <cuda_runtime.h>
+#include <cutil.h>
+#include "utils.h"
+#include <vector>
+#include <iostream>
+
+typedef float real_t;
+
+// Compute flip_horizontal
+// need change on this
+__global__ void flip_horizontal(const real_t* in, real_t *out, int num_rows, int num_columns ) {
+    const int row = blockIdx.x * blockDim.x + threadIdx.x;
+    const int col = blockIdx.y * blockDim.y + threadIdx.y;
+    const int input_index = row * num_columns + col;
+    const int output_index =  row * (num_columns + 1) - col - 1;
+    out[ output_index ] = in[ input_index ];
+}
+/* Does a horizontal flip of the array arr */
+void flip_horizontal(float *arr, int width) {
+    /* YOU MAY WISH TO IMPLEMENT THIS */
+    int ROWS = width;
+    int COLUMNS = width;
+    //create 3-dim vector objects to initialize values
+    int threads_per_block = 512; 
+    dim3 THREADS_PER_BLOCK(threads_per_block, 1, 1);
+    dim3 BLOCKS(width/ threads_per_block,
+    	 	width/ threads_per_block);
+
+    // the size of the matrix
+    size_t SIZE = ROWS * COLUMNS * sizeof( real_t );
+
+    // device(gpu) storage
+    real_t* dev_in = 0;
+    real_t* dev_out = 0;
+    
+    //allocate "scratch space" on the GPU.
+    cudaMalloc( &dev_in,  SIZE );
+    cudaMalloc( &dev_out, SIZE );
+
+    // host(cpu) storage
+    std::vector< real_t > outmatrix( ROWS * COLUMNS );
+    
+    // initialize data with gpu kernel; faster than CPU for loops
+    initialKernel<<<dim3( COLUMNS, ROWS ), 1>>>( dev_in );
+
+    // wait for GPU to finish computation
+    cudaThreadSynchronize();
+    CUT_CHECK_ERROR("");
+    
+    // Copies count bytes from the memory area pointed to by src to the memory ar      ea pointed to by dst,
+    cudaMemcpy( &outmatrix[ 0 ], dev_in, SIZE, cudaMemcpyDeviceToHost );
+
+    // invoke flip_horizontal kernel
+    flip_horizontal<<<BLOCKS, THREADS_PER_BLOCK>>>( dev_in, dev_out, ROWS, COLUMNS );
+    // wait for GPU to finish computation
+    cudaThreadSynchronize();
+    CUT_CHECK_ERROR("");
+
+    // copy output data from device(gpu) to host(cpu)
+    cudaMemcpy( &outmatrix[ 0 ], dev_out, SIZE, cudaMemcpyDeviceToHost );
+    
+    // free memory
+    cudaFree( dev_in );
+    cudaFree( dev_out );
+
+}
+
+// Kernel for transpose on GPU
+__global__ void initialKernel(real_t* in ) {
+    int x = threadIdx.x + blockDim.x * blockIdx.x;
+    int y = threadIdx.y + blockDim.y * blockIdx.y;
+    int idx = x + gridDim.x * blockDim.x * y; 
+    in[ idx ] = idx; 
+}
+
+// Compute the transpose
+__global__ void transpose( const real_t* in, real_t *out, int num_rows, int num_columns ) {
+    const int row = blockIdx.x * blockDim.x + threadIdx.x;
+    const int col = blockIdx.y * blockDim.y + threadIdx.y;
+    const int input_index = row * num_columns + col;
+    const int output_index = col * num_rows + row; 
+    out[ output_index ] = in[ input_index ];
+}
+/* Transposes the square array ARR. */
+void transpose(float *arr, int width) {
+    /* YOU MAY WISH TO IMPLEMENT THIS */
+    int ROWS = width;
+    int COLUMNS = width;
+    //create 3-dim vector objects to initialize values
+    int threads_per_block = 512; 
+    dim3 THREADS_PER_BLOCK(threads_per_block, 1, 1);
+    dim3 BLOCKS(width/ threads_per_block,
+    	 	width/ threads_per_block);
+
+    // the size of the matrix
+    size_t SIZE = ROWS * COLUMNS * sizeof(real_t);
+
+    // device(gpu) storage
+    real_t* dev_in = 0;
+    real_t* dev_out = 0;
+    
+    //allocate "scratch space" on the GPU.
+    cudaMalloc( &dev_in,  SIZE );
+    cudaMalloc( &dev_out, SIZE );
+
+    // host(cpu) storage
+    std::vector< real_t > outmatrix( ROWS * COLUMNS );
+    
+    // initialize data with gpu kernel; faster than CPU for loops
+    initialKernel<<<dim3( COLUMNS, ROWS ), 1>>>( dev_in );
+
+    // wait for GPU to finish computation
+    cudaThreadSynchronize();
+    CUT_CHECK_ERROR("");
+    
+    // Copies count bytes from the memory area pointed to by src to the memory ar      ea pointed to by dst,
+    cudaMemcpy(&outmatrix[ 0 ], dev_in, SIZE, cudaMemcpyDeviceToHost );
+
+    // invoke transpose kernel
+    transpose<<<BLOCKS, THREADS_PER_BLOCK>>>( dev_in, dev_out, ROWS, COLUMNS );
+    // wait for GPU to finish computation
+    cudaThreadSynchronize();
+    CUT_CHECK_ERROR("");
+
+    // copy output data from device(gpu) to host(cpu)
+    cudaMemcpy( &outmatrix[ 0 ], dev_out, SIZE, cudaMemcpyDeviceToHost );
+    
+    // free memory
+    cudaFree( dev_in );
+    cudaFree( dev_out );
+
+}
+
+__global__ void rotate_ccw_90_kernal(float *dst, float *src, int width, int thread_per_block) {
+    int srcIndex = threadId.x + thread_per_block * blockDim.x + width*blockDim.y; // x = threadID.x * blockDim.x, y = blockDim.y * width
+    int dstIndex = blockDim.y + width*(width - (threadID.x + thread_per_block * blockDim.x) - 1); // X = Y , Y = Width - X - 1
+    dst[dstIndex] = src[srcIndex];
+}
+
+// Must run in device
+/* Rotates the square array ARR by 90 degrees counterclockwise. */
+void rotate_ccw_90(float *dst, float *src, int width) {
+    int len = width * width;
+    int thread_per_block = 512;
+    int blocks_per_grid_x = width / thread_per_block;
+    int blocks_per_grid_y = width / thread_per_block;
+
+    dim3 dim_thread_per_block(thread_per_block, 1, 1);
+    dim3 dim_blocks_per_grid(blocks_per_grid_x, blocks_per_grid_y);
+
+    rotate_ccw_90_kernal<<<dim_blocks_per_grid, dim_thread_per_block>>>(dst, src, width, thread_per_block);
+
+    cudaThreadSynchronize();
+    CUT_CHECK_ERROR("");
+}
+
+__global__ void finding_distance_kernal(float *image, float *template, int t_width, int thread_per_block, float *difference, int quantum_y) {
+    int image_index = threadID.x + b kDim.x * thread_per_block + blockDim.y * quantum_y;
+    int template_index = threadID.x + blockDim.x * thread_per_block + blockDim.y * t_width;
+    x_val = image[image_index];
+    y_val = template[template_index];
+    difference[template_index] = (x_val - y_val) * (x_val - y_val);
+}
+
+// Must run in device
+// finding_distance(image + x + y * i_width, template, t_width, d_distances +x+y);
+void finding_distance(float *image, float *template, int t_width, float *d_distances, float *difference) {
+    int len = t_width * t_width;
+    int thread_per_block = 512;
+    int blocks_per_grid = (len / thread_per_block) + 1;
+    unsigned int quantum_y = translated_y ? translated_y : t_width;
+    dim3 blocks_per_grid(thread_per_block, 1); // Play with this
+    dim3 threads_per_block(thread_per_block, thread_per_block, thread_per_block); // Play with this
+
+    int len = t_width * t_width;
+    int thread_per_block = 512; 
+    int blocks_per_grid_x = width / thread_per_block;
+    int blocks_per_grid_y = len / blocks_per_grid_x;// it is same as t_width;
+    unsigned int quantum_y = translated_y ? translated_y : t_width;
+
+    dim3 dim_blocks_per_grid(blocks_per_grid_x, blocks_per_grid_y);
+    dim3 dim_thread_per_block(thread_per_block, 1, 1);
+
+
+    // Difference is a matrix sized by t_width * t_width that has distance between template and image and save it in the cell
+    finding_distance_kernal<<<dim_blocks_per_grid, dim_thread_per_block>>>(image, template, t_width, thread_per_block, difference, quantum_y);
+
+    // Wait till result gets calculated
+    cudaThreadSynchronize();
+    CUT_CHECK_ERROR("");
+
+
+    thread_per_block = 256; // This value is used because the minimum size of template will be 512
+    // Using reduction
+    int level = 1;
+    while(level != len) {
+        dim3 dim_blocks_per_grid(blocks_per_grid_x, blocks_per_grid_y);
+        dim3 dim_thread_per_block(thread_per_block, 1, 1);
+        reduction_kernal<<<dim_blocks_per_grid, dim_thread_per_block>>>(difference, level, thread_per_block, t_width);
+        cudaThreadSynchronize();
+        CUT_CHECK_ERROR("");
+        
+        // update level accordingly;
+        if() {
+            thread_per_block /= 2;
+        }
+    }
+
+    // Short reduction for blockDim.y
+
+    cudaMemcpy(d_distances, difference, sizeof(float), cudaMemcpyDeviceToDevice); // First value in difference will have value 
+}
+
+
+
+
+/* Returns the squared Euclidean distance between TEMPLATE and IMAGE. The size of IMAGE
+ * is I_WIDTH * I_HEIGHT, while TEMPLATE is square with side length T_WIDTH. The template
+ * image should be flipped, rotated, and translated across IMAGE.
+ */
+float calc_min_dist(float *image, int i_width, int i_height, float *temp, int t_width) {
+    // float* image and float* temp are pointers to GPU addressible memory
+    // You MAY NOT copy this data back to CPU addressible memory and you MAY 
+    // NOT perform any computation using values from image or temp on the CPU.
+
+    /* YOUR CODE HERE */
+     if (i_width < t_width || i_height < t_width){ //impossible to match 
+        printf("Invalid; size returning the maximum distance! \n");
+        return UINT_MAX; // returning nonmatch immidetely
+    }
+    else if(image == NULL || template == NULL){
+        printf("Image passed the null object, exit with error");
+        exit(0);
+    }
+
+   /*  if(i_width > t_width || i_height > t_width) {
+        return translated(image, i_width, i_height, template, t_width);
+    }*/
+    
+    cudaDeviceReset();
+    float min_dist = FLT_MAX;
+    size_t size_template = sizeof(float)*t_width*t_width;
+    size_t size_image = sizeof(float)*t_width*t_width;
+    
+    return min_dist;
+}
+
